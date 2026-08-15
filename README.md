@@ -30,15 +30,19 @@ A 6-screen wizard (`streamlit_app.py`):
 
 1. **Upload** — load a claims file (CSV/Excel) or one of the built-in samples.
 2. **Map columns** — map your columns to incurred date / paid date / paid amount, choose the
-   date format, incremental vs. cumulative amounts, and the period grain (annual / quarterly /
-   monthly). Optionally pick a segment column and load an earned-premium file (required for
-   Bornhuetter-Ferguson & Cape Cod).
-3. **Review** — inspect the cumulative loss triangle.
+   date format, incremental vs. cumulative amounts, and the period grain (annual / quarterly).
+   Optional mappings: a **case reserve (RSP)** column (enables the **incurred** triangle,
+   incurred = paid + RSP), a **claim ID** (for correct per-claim handling of cumulative amounts
+   and reserves), and a **segment** column. An earned-premium file (loaded on the Upload screen)
+   unlocks Bornhuetter-Ferguson & Cape Cod.
+3. **Review** — inspect the cumulative loss triangle; when case reserves were mapped, choose the
+   **paid** or **incurred** base to continue with.
 4. **Anomalies** — an interactive grid of individual development factors (FDIs) with IQR-based
    outlier flagging; exclude factors (with a required comment) to see the average update live.
 5. **Configure** — choose methods, tail factor, and an optional ELR override.
-6. **Results** — per-method IBNR tables, comparison charts, a segment filter, and CSV / Excel /
-   PDF export.
+6. **Results** — per-method IBNR by accident year, a **best estimate** (Benktander maturity blend
+   or manual per-year weights), paid-vs-incurred **reconciliation**, maturity (% reported)
+   highlighting, a segment filter, and CSV / Excel / PDF export.
 
 ## Project structure
 
@@ -46,17 +50,17 @@ A 6-screen wizard (`streamlit_app.py`):
 IBNR/
 ├── streamlit_app.py        # Streamlit web app (6-screen wizard)
 ├── app/
-│   ├── pipeline.py         # raw claims (CSV/Excel) → cumulative loss triangle
-│   ├── methods.py          # Chain Ladder, BF, Cape Cod; FDI/CDF math; IQR anomaly detection
+│   ├── pipeline.py         # raw claims (CSV/Excel) → cumulative paid & incurred triangles
+│   ├── methods.py          # Chain Ladder, BF, Cape Cod, Benktander; FDI/CDF math; IQR anomalies
 │   ├── exports.py          # multi-sheet Excel (openpyxl) + PDF report (reportlab)
 │   └── i18n.py             # English / Spanish translations
-├── tests/
-│   └── test_methods.py     # unittest suite (incl. a hand-verified exercise)
+├── tests/                  # unittest suite (methods, pipeline, exports)
 ├── samples/                # sample claims / segmented / earned-premium CSVs
 ├── data/                   # standalone triangle + premium CSVs (used by the notebooks)
 ├── python/ibnr_analysis.ipynb   # Python notebook (pandas, numpy, matplotlib)
 ├── R/ibnr_analysis.Rmd          # R Markdown notebook (ggplot2, dplyr)
-├── requirements.txt
+├── requirements.txt             # app dependencies (what Streamlit Cloud installs)
+├── requirements-dev.txt         # + Jupyter/notebook extras for local development
 └── README.md
 ```
 
@@ -74,13 +78,14 @@ Requires Python 3.10+ (the code uses `X | None` type hints).
 ### Tests
 
 ```bash
-python -m unittest tests/test_methods.py -v
+python -m unittest discover tests -v
 ```
 
 ### Notebooks
 
 ```bash
-# Python
+# Python (Jupyter comes from the dev extras)
+pip install -r requirements-dev.txt
 cd python && jupyter notebook ibnr_analysis.ipynb
 ```
 
@@ -118,3 +123,8 @@ estimate ultimate losses. `CDF = 1.0` means fully developed.
 
 **ELR (Expected Loss Ratio)** — used by BF and Cape Cod as a prior expectation.
 `ELR = Expected Losses / Premium`.
+
+**Completion factor / % reported** — the share of ultimate losses already reported,
+`q = 1 / CDF`. It drives the **Benktander** best estimate: per accident year the reserve is
+`q · Chain Ladder + (1 − q) · BF`, so mature years follow the data and immature years lean on the
+a priori.
