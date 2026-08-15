@@ -6,11 +6,11 @@ app**, with the same methods also available as Python and R notebooks.
 
 ## 🚀 Live app — no install needed
 
-### ▶ **[Open the app](https://ibnr-app-2lebbeyyanih6sm7bkq5p7.streamlit.app/)**
+### ▶ **[Open the app](https://ibnr-app.streamlit.app/)**
 
 Just click the link — it runs in your browser, nothing to install.
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://ibnr-app-2lebbeyyanih6sm7bkq5p7.streamlit.app/)
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://ibnr-app.streamlit.app/)
 
 ## Methods
 
