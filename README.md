@@ -4,6 +4,14 @@ Actuarial estimation of **Incurred But Not Reported (IBNR)** reserves using stan
 development methods. The project ships as a **bilingual (English / Spanish) Streamlit web
 app**, with the same methods also available as Python and R notebooks.
 
+## 🚀 Live app — no install needed
+
+### ▶ **[Open the app](https://ibnr-app-2lebbeyyanih6sm7bkq5p7.streamlit.app/)**
+
+Just click the link — it runs in your browser, nothing to install.
+
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://ibnr-app-2lebbeyyanih6sm7bkq5p7.streamlit.app/)
+
 ## Methods
 
 | Method | Description |
@@ -11,6 +19,7 @@ app**, with the same methods also available as Python and R notebooks.
 | **Chain Ladder** | Projects the latest diagonal using **simple-average** age-to-age (link ratio) factors |
 | **Bornhuetter-Ferguson** | Blends the development pattern with an a priori expected loss ratio (ELR) |
 | **Cape Cod (Stanard-Bühlmann)** | Like BF, but derives the ELR from used-up premium in the data |
+| **Benktander (Gunnar-Benktander)** | Credibility blend of Chain Ladder and BF, weighted per accident year by the completion factor (% reported) |
 
 > All methods use **simple-average** link ratios (equal weight per accident year). This keeps
 > individual deviations visible for the anomaly-detection step.
