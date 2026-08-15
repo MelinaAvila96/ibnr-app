@@ -1,0 +1,5 @@
+# Extra dependencies for local development (the Jupyter/R notebooks).
+# Not needed to run or deploy the Streamlit app.
+-r requirements.txt
+jupyter>=1.0
+notebook>=6.4

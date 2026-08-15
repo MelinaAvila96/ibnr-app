@@ -1,0 +1,350 @@
+---
+title: "IBNR Estimation — Four Actuarial Methods"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+    highlight: tango
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.width = 10, fig.height = 5)
+```
+
+This notebook estimates **Incurred But Not Reported (IBNR)** reserves using four standard actuarial methods.
+
+**Methods:**
+
+1. Chain Ladder (Development Method)
+2. Average Development Method
+3. Bornhuetter-Ferguson Method
+4. Cape Cod Method
+
+---
+
+## 1. Load Data
+
+```{r load-data}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(knitr)
+library(scales)
+
+# Load triangle
+tri_raw <- read.csv("../data/paid_loss_triangle.csv", check.names = FALSE)
+rownames(tri_raw) <- tri_raw$accident_year
+tri_raw$accident_year <- NULL
+colnames(tri_raw) <- as.integer(gsub("dev_", "", colnames(tri_raw)))
+
+# Load premium
+premium_df <- read.csv("../data/earned_premium.csv")
+AYs <- as.integer(rownames(tri_raw))
+devs <- as.integer(colnames(tri_raw))
+n <- length(AYs)
+
+# Matrix form
+triangle <- as.matrix(tri_raw)
+premium <- setNames(premium_df$earned_premium, premium_df$accident_year)
+premium <- premium[as.character(AYs)]
+
+kable(tri_raw, format.args = list(big.mark = ","), caption = "Paid Loss Triangle ($000s)")
+```
+
+---
+
+## 2. Age-to-Age Development Factors
+
+```{r ata-factors}
+# Volume-weighted ATA factors
+ata_vw <- numeric(n - 1)
+ata_sa <- numeric(n - 1)
+
+for (j in seq_len(n - 1)) {
+  col_curr <- triangle[, j]
+  col_next <- triangle[, j + 1]
+  mask <- !is.na(col_curr) & !is.na(col_next)
+  if (sum(mask) > 0) {
+    ata_vw[j] <- sum(col_next[mask]) / sum(col_curr[mask])
+    ata_sa[j] <- mean(col_next[mask] / col_curr[mask])
+  }
+}
+
+# Individual link ratios
+lr_mat <- matrix(NA, nrow = n, ncol = n - 1,
+                 dimnames = list(AYs, paste0(devs[-n], "-", devs[-1])))
+for (i in seq_len(n)) {
+  for (j in seq_len(n - 1)) {
+    if (!is.na(triangle[i, j]) && !is.na(triangle[i, j + 1])) {
+      lr_mat[i, j] <- triangle[i, j + 1] / triangle[i, j]
+    }
+  }
+}
+
+lr_display <- rbind(lr_mat, "Vol. Wtd. Avg" = ata_vw, "Simple Avg" = ata_sa)
+kable(round(lr_display, 4), caption = "Link Ratios by Accident Year")
+```
+
+```{r cdfs}
+# Cumulative development factors from each period to ultimate
+TAIL <- 1.0
+cdfs_from_ata <- function(ata, tail = 1.0) {
+  factors <- c(ata, tail)
+  cdfs <- numeric(length(factors))
+  cdfs[length(cdfs)] <- tail
+  for (i in (length(factors) - 1):1) {
+    cdfs[i] <- factors[i] * cdfs[i + 1]
+  }
+  cdfs
+}
+
+cdfs_vw <- cdfs_from_ata(ata_vw, TAIL)
+cdfs_sa <- cdfs_from_ata(ata_sa, TAIL)
+
+cdf_df <- data.frame(
+  Development = paste0(devs, "m"),
+  `CDF (Vol. Wtd.)` = round(cdfs_vw, 4),
+  `CDF (Simple Avg)` = round(cdfs_sa, 4),
+  `% Developed` = paste0(round(100 / cdfs_vw, 1), "%"),
+  check.names = FALSE
+)
+kable(cdf_df, caption = "Cumulative Development Factors")
+```
+
+---
+
+## 3. Method 1: Chain Ladder
+
+Projects the latest diagonal using volume-weighted CDF:
+
+$$\hat{U}_i = C_{i,d_i} \times CDF_{d_i}$$
+
+```{r chain-ladder}
+# Find latest diagonal
+latest <- numeric(n)
+latest_col <- integer(n)
+for (i in seq_len(n)) {
+  known <- which(!is.na(triangle[i, ]))
+  if (length(known) > 0) {
+    j <- max(known)
+    latest[i] <- triangle[i, j]
+    latest_col[i] <- j
+  }
+}
+
+# Chain Ladder
+ult_cl <- latest * cdfs_vw[latest_col]
+ibnr_cl <- ult_cl - latest
+
+cl_df <- data.frame(
+  `Accident Year` = AYs,
+  `Latest Paid` = latest,
+  `CDF` = round(cdfs_vw[latest_col], 4),
+  `Ultimate` = round(ult_cl),
+  `IBNR` = round(ibnr_cl),
+  check.names = FALSE
+)
+
+cl_total <- data.frame(
+  `Accident Year` = "TOTAL", `Latest Paid` = sum(latest), `CDF` = NA,
+  `Ultimate` = round(sum(ult_cl)), `IBNR` = round(sum(ibnr_cl)),
+  check.names = FALSE
+)
+kable(rbind(cl_df, cl_total), format.args = list(big.mark = ","),
+      caption = "Chain Ladder Results ($000s)")
+```
+
+---
+
+## 4. Method 2: Average Development
+
+Same as Chain Ladder but using simple average link ratios:
+
+```{r avg-development}
+ult_ad <- latest * cdfs_sa[latest_col]
+ibnr_ad <- ult_ad - latest
+
+ad_df <- data.frame(
+  `Accident Year` = AYs,
+  `Latest Paid` = latest,
+  `CDF (Simple Avg)` = round(cdfs_sa[latest_col], 4),
+  `Ultimate` = round(ult_ad),
+  `IBNR` = round(ibnr_ad),
+  check.names = FALSE
+)
+ad_total <- data.frame(
+  `Accident Year` = "TOTAL", `Latest Paid` = sum(latest), `CDF (Simple Avg)` = NA,
+  `Ultimate` = round(sum(ult_ad)), `IBNR` = round(sum(ibnr_ad)),
+  check.names = FALSE
+)
+kable(rbind(ad_df, ad_total), format.args = list(big.mark = ","),
+      caption = "Average Development Results ($000s)")
+```
+
+---
+
+## 5. Method 3: Bornhuetter-Ferguson
+
+Blends Chain Ladder with an *a priori* expected loss ratio:
+
+$$\hat{U}_i^{BF} = C_{i,d_i} + \left(1 - \frac{1}{CDF_{d_i}}\right) \times ELR \times P_i$$
+
+```{r bf}
+# ELR from Chain Ladder ultimates
+ELR <- sum(ult_cl) / sum(premium)
+cat(sprintf("A priori ELR (from Chain Ladder): %.1f%%\n", ELR * 100))
+
+unrep_pct <- 1 - 1 / cdfs_vw[latest_col]
+exp_losses <- ELR * premium
+ibnr_bf <- unrep_pct * exp_losses
+ult_bf <- latest + ibnr_bf
+
+bf_df <- data.frame(
+  `Accident Year` = AYs,
+  `Latest Paid` = latest,
+  `Unreported %` = paste0(round(unrep_pct * 100, 1), "%"),
+  `Expected Losses` = round(exp_losses),
+  `IBNR` = round(ibnr_bf),
+  `Ultimate` = round(ult_bf),
+  check.names = FALSE
+)
+bf_total <- data.frame(
+  `Accident Year` = "TOTAL", `Latest Paid` = sum(latest), `Unreported %` = NA,
+  `Expected Losses` = round(sum(exp_losses)), `IBNR` = round(sum(ibnr_bf)),
+  `Ultimate` = round(sum(ult_bf)), check.names = FALSE
+)
+kable(rbind(bf_df, bf_total), format.args = list(big.mark = ","),
+      caption = "Bornhuetter-Ferguson Results ($000s)")
+```
+
+---
+
+## 6. Method 4: Cape Cod
+
+ELR estimated from the data via *used-up premium*:
+
+$$ELR^{CC} = \frac{\sum_i C_{i,d_i}}{\sum_i P_i / CDF_{d_i}}$$
+
+```{r cape-cod}
+used_up_prem <- premium / cdfs_vw[latest_col]
+ELR_cc <- sum(latest) / sum(used_up_prem)
+cat(sprintf("Cape Cod ELR (from data): %.1f%%\n", ELR_cc * 100))
+
+unrep_pct_cc <- 1 - 1 / cdfs_vw[latest_col]
+ibnr_cc <- unrep_pct_cc * ELR_cc * premium
+ult_cc <- latest + ibnr_cc
+
+cc_df <- data.frame(
+  `Accident Year` = AYs,
+  `Latest Paid` = latest,
+  `Used-Up Premium` = round(used_up_prem),
+  `Unreported %` = paste0(round(unrep_pct_cc * 100, 1), "%"),
+  `IBNR` = round(ibnr_cc),
+  `Ultimate` = round(ult_cc),
+  check.names = FALSE
+)
+cc_total <- data.frame(
+  `Accident Year` = "TOTAL", `Latest Paid` = sum(latest),
+  `Used-Up Premium` = round(sum(used_up_prem)), `Unreported %` = NA,
+  `IBNR` = round(sum(ibnr_cc)), `Ultimate` = round(sum(ult_cc)),
+  check.names = FALSE
+)
+kable(rbind(cc_df, cc_total), format.args = list(big.mark = ","),
+      caption = "Cape Cod Results ($000s)")
+```
+
+---
+
+## 7. Results Comparison
+
+```{r comparison-table}
+comp <- data.frame(
+  `Accident Year` = AYs,
+  `Latest Paid` = latest,
+  `Chain Ladder` = round(ibnr_cl),
+  `Avg Development` = round(ibnr_ad),
+  `Bornhuetter-Ferguson` = round(ibnr_bf),
+  `Cape Cod` = round(ibnr_cc),
+  check.names = FALSE
+)
+comp_total <- data.frame(
+  `Accident Year` = "TOTAL", `Latest Paid` = sum(latest),
+  `Chain Ladder` = round(sum(ibnr_cl)), `Avg Development` = round(sum(ibnr_ad)),
+  `Bornhuetter-Ferguson` = round(sum(ibnr_bf)), `Cape Cod` = round(sum(ibnr_cc)),
+  check.names = FALSE
+)
+kable(rbind(comp, comp_total), format.args = list(big.mark = ","),
+      caption = "IBNR by Method ($000s)")
+```
+
+```{r comparison-chart}
+# Reshape for ggplot
+ibnr_long <- data.frame(
+  `Accident Year` = rep(as.character(AYs), 4),
+  Method = rep(c("Chain Ladder", "Avg Development", "Bornhuetter-Ferguson", "Cape Cod"),
+               each = n),
+  IBNR = c(ibnr_cl, ibnr_ad, ibnr_bf, ibnr_cc),
+  check.names = FALSE
+)
+ibnr_long$Method <- factor(ibnr_long$Method,
+                           levels = c("Chain Ladder", "Avg Development",
+                                      "Bornhuetter-Ferguson", "Cape Cod"))
+
+ggplot(ibnr_long, aes(x = `Accident Year`, y = IBNR, fill = Method)) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.85) +
+  scale_y_continuous(labels = comma) +
+  scale_fill_brewer(palette = "Set1") +
+  labs(title = "IBNR by Accident Year and Method",
+       y = "IBNR ($000s)", x = "Accident Year") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom")
+```
+
+```{r totals-chart}
+totals_df <- data.frame(
+  Method = c("Chain Ladder", "Avg Development", "Bornhuetter-Ferguson", "Cape Cod"),
+  IBNR = c(sum(ibnr_cl), sum(ibnr_ad), sum(ibnr_bf), sum(ibnr_cc))
+)
+totals_df$Method <- factor(totals_df$Method, levels = totals_df$Method)
+
+ggplot(totals_df, aes(x = Method, y = IBNR, fill = Method)) +
+  geom_bar(stat = "identity", alpha = 0.85, show.legend = FALSE) +
+  geom_text(aes(label = comma(round(IBNR))), vjust = -0.5, fontface = "bold") +
+  scale_y_continuous(labels = comma, expand = expansion(mult = c(0, 0.15))) +
+  scale_fill_brewer(palette = "Set1") +
+  labs(title = "Total IBNR by Method", y = "Total IBNR ($000s)", x = NULL) +
+  theme_minimal(base_size = 12)
+```
+
+---
+
+## 8. Summary
+
+```{r summary}
+sum_df <- data.frame(
+  Method = c("Chain Ladder", "Avg Development", "Bornhuetter-Ferguson", "Cape Cod"),
+  `Total IBNR` = round(c(sum(ibnr_cl), sum(ibnr_ad), sum(ibnr_bf), sum(ibnr_cc))),
+  `Total Ultimate` = round(c(sum(ult_cl), sum(ult_ad), sum(ult_bf), sum(ult_cc))),
+  `Total Premium` = rep(sum(premium), 4),
+  check.names = FALSE
+)
+sum_df$`Ultimate LR` <- paste0(round(sum_df$`Total Ultimate` / sum_df$`Total Premium` * 100, 1), "%")
+sum_df$`IBNR / Latest` <- paste0(round(sum_df$`Total IBNR` / sum(latest) * 100, 1), "%")
+
+kable(sum_df[, c("Method", "Total IBNR", "Total Ultimate", "Ultimate LR", "IBNR / Latest")],
+      format.args = list(big.mark = ","), caption = "Summary")
+```
+
+---
+
+## Method Reference
+
+| Method | Strengths | Weaknesses |
+|---|---|---|
+| **Chain Ladder** | Simple, data-driven, widely used | Amplifies distortions in early diagonals |
+| **Average Development** | Equal weight per year; smooths volume bias | May underweight credible large-volume years |
+| **Bornhuetter-Ferguson** | Stabilises immature years; blends prior + data | Sensitive to ELR choice |
+| **Cape Cod** | ELR derived from data; no external assumption | Volatile if experience is thin |
